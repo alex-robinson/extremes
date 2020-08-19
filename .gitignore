@@ -1,3 +1,6 @@
+*.x
+*.mod
+*.o
 *.Rdata
 *.nc
 data
