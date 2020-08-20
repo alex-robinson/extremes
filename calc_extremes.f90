@@ -33,13 +33,24 @@ program calc_extremes
     
 
     type dataset_class 
+        
+        ! Dimension sizes
         integer :: nx, ny, nm, ns, nyr, nt, nsig 
+
+        ! Dimensions
         real(wp), allocatable :: lon(:)
         real(wp), allocatable :: lat(:)
         real(wp), allocatable :: month(:)
         real(wp), allocatable :: seas(:) 
         real(wp), allocatable :: year(:) 
         real(wp), allocatable :: sigma(:) 
+
+        ! Grid variables 
+        real(wp), allocatable :: cell_wt(:,:)
+        real(wp), allocatable :: f_land(:,:)
+        real(wp), allocatable :: wt70land(:,:)
+        
+        ! Variables
         real(wp), allocatable :: tas3D(:,:,:)
         real(wp), allocatable :: tas(:,:,:,:)
         real(wp), allocatable :: tas_ref(:,:,:)
@@ -47,35 +58,88 @@ program calc_extremes
         real(wp), allocatable :: tas_detrnd(:,:,:,:)
         real(wp), allocatable :: tas_sd(:,:,:)
         real(wp), allocatable :: tas_sigma(:,:,:,:)
+
+        real(wp), allocatable :: tas_rec_hi(:,:,:,:)
+
+        real(wp), allocatable :: frac_sigma(:,:,:) 
+
     end type 
 
     type(dataset_class) :: dat 
 
     character(len=512) :: filename_in 
-    character(len=512) :: filename_out 
+    character(len=512) :: filename_out_1 
+    character(len=512) :: filename_out_2
+
+    logical :: load_tas 
+    logical :: load_stats_1 
 
     ! Test time series calculations 
     !call test_timeseries("test.nc",n=100,mu=0.0_wp,sigma=2.0_wp,alpha=0.0_wp)
     !stop 
 
 
-    filename_in  = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1.nc"
-    filename_out = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1_stats.nc"
+    filename_in    = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1.nc"
+    filename_out_1 = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1_stats_1.nc"
+    filename_out_2 = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1_stats_2.nc"
+
+    ! Options 
+    load_tas     = .TRUE.
+    load_stats_1 = .FALSE. 
+
+
+    ! Do not load original data if loading stats_1 
+    if (load_stats_1) load_tas = .FALSE. 
 
     ! Load data including dimension info (nx,ny)
-    call load_best(dat,filename_in,year0=1850,year1=2020,mv=mv)
+    call load_best(dat,filename_in,year0=1850,year1=2020,mv=mv,load_tas=load_tas)
+
+if (load_stats_1) then 
+
+    ! To do:
+    !call stats_read_1(dat,filename_out_1)
+
+    call nc_read(filename_out_1,"cell_wt",      dat%cell_wt)
+    call nc_read(filename_out_1,"f_land",       dat%f_land)
+    call nc_read(filename_out_1,"wt70land",     dat%wt70land)
+    
+    call nc_read(filename_out_1,"tas",          dat%tas,        missing_value=mv)
+    call nc_read(filename_out_1,"tas_sm",       dat%tas_sm,     missing_value=mv)
+    call nc_read(filename_out_1,"tas_detrnd",   dat%tas_detrnd, missing_value=mv)
+    call nc_read(filename_out_1,"tas_sd",       dat%tas_sd,     missing_value=mv)
+    call nc_read(filename_out_1,"tas_sigma",    dat%tas_sigma,  missing_value=mv)
+
+else 
+    ! Calculate stats1 
 
     ! Perform stats calculations
     call stats_calc_1(dat,L=15.0_wp,mv=mv)
     
+    ! === Write output ===
 
-    ! Write output
-    call write_extremes_init(filename_out,dat%lon,dat%lat,year0=1850,year1=2020)
-    call nc_write(filename_out,"tas",dat%tas,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
-    call nc_write(filename_out,"tas_sm",dat%tas_sm,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
-    !call nc_write(filename_out,"tas_detrnd",dat%tas_detrnd,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
-    call nc_write(filename_out,"tas_sd",dat%tas_sd,dim1="lon",dim2="lat",dim3="month",missing_value=mv)
-    call nc_write(filename_out,"tas_sigma",dat%tas_sigma,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    ! Initialize file and write grid variables
+    call write_extremes_init(filename_out_1,dat%lon,dat%lat,dat%sigma,year0=1850,year1=2020)
+    
+    call nc_write(filename_out_1,"cell_wt", dat%cell_wt, dim1="lon",dim2="lat")
+    call nc_write(filename_out_1,"f_land",  dat%f_land,  dim1="lon",dim2="lat")
+    call nc_write(filename_out_1,"wt70land",dat%wt70land,dim1="lon",dim2="lat")
+    
+    ! Write variables
+    call nc_write(filename_out_1,"tas",dat%tas,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    call nc_write(filename_out_1,"tas_sm",dat%tas_sm,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    call nc_write(filename_out_1,"tas_detrnd",dat%tas_detrnd,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    call nc_write(filename_out_1,"tas_sd",dat%tas_sd,dim1="lon",dim2="lat",dim3="month",missing_value=mv)
+    call nc_write(filename_out_1,"tas_sigma",dat%tas_sigma,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+
+    call nc_write(filename_out_1,"tas_rec_hi",dat%tas_rec_hi,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+
+end if 
+    
+    call stats_calc_2(dat,mv)
+
+    ! Initialize file and write grid variables
+    call write_extremes_init(filename_out_2,dat%lon,dat%lat,dat%sigma,year0=1850,year1=2020)
+    call nc_write(filename_out_2,"frac_sigma",dat%frac_sigma,dim1="year",dim2="month",dim3="sigma",missing_value=mv)
 
 contains
 
@@ -150,7 +214,10 @@ subroutine stats_calc_1(dat,L,mv)
             if (n .gt. 0) then 
                 dat%tas_detrnd(i,j,m,idx_numeric) = dat%tas(i,j,m,idx_numeric) - dat%tas_sm(i,j,m,idx_numeric) 
             end if
-              
+            
+            ! Calculate records 
+            call calc_series_records(dat%tas_rec_hi(i,j,m,:),dat%tas(i,j,m,:),low_records=.FALSE.,mv=mv)
+
         end do 
 
         ! With reference, smoothed and detrended data available for all months,
@@ -181,6 +248,45 @@ subroutine stats_calc_1(dat,L,mv)
 
 end subroutine stats_calc_1
 
+subroutine stats_calc_2(dat,mv)
+    ! Given a 4D dataset (nx,ny,nm,nyr), perform 
+    ! initial steps of statistics calculations. 
+
+    implicit none 
+
+    type(dataset_class), intent(INOUT) :: dat  
+    real(wp), intent(IN) :: mv 
+
+    ! Local variables 
+    integer :: i, j, m, y 
+    integer :: nx, ny, nm, nyr, n 
+
+    integer :: idx_mm(12,3)
+    integer :: m1, m2, m3 
+
+    nx  = size(dat%tas,1)
+    ny  = size(dat%tas,2)
+    nm  = size(dat%tas,3) 
+    nyr = size(dat%tas,4)
+    
+    ! Populate month indices to get 
+    ! three months surrounding a given month 
+    do m = 1, nm 
+        idx_mm(m,:) = [-1,0,1] + m
+    end do 
+    where(idx_mm .eq. 0)  idx_mm = 12 
+    where(idx_mm .eq. 13) idx_mm = 1 
+    
+    write(*,*) "stats_calc_2..."
+
+    call calc_frac_sigma_series(dat%frac_sigma,dat%tas_sigma,dat%wt70land,dat%sigma,mv)
+
+    write(*,*) "stats_calc_2... done."
+
+    return 
+
+end subroutine stats_calc_2
+
 subroutine calc_tas_sigma(tas_sigma,tas,tas_ref,tas_sd,mv)
 
     implicit none 
@@ -204,7 +310,7 @@ subroutine calc_tas_sigma(tas_sigma,tas,tas_ref,tas_sd,mv)
 
 end subroutine calc_tas_sigma
 
-subroutine load_best(dat,filename,year0,year1,mv)
+subroutine load_best(dat,filename,year0,year1,mv,load_tas)
 
     implicit none 
 
@@ -213,11 +319,13 @@ subroutine load_best(dat,filename,year0,year1,mv)
     integer,  intent(IN)  :: year0 
     integer,  intent(IN)  :: year1
     real(wp), intent(IN)  :: mv 
+    logical,  intent(IN)  :: load_tas 
 
     ! Local variables  
     real(wp), allocatable :: tas3D(:,:,:)
-    
-    write(*,"(a)",advance="no") "load_best..."
+    integer,  allocatable :: idx(:) 
+
+    write(*,*) "load_best..."
 
     dat%nx = nc_size(filename_in,"longitude")
     dat%ny = nc_size(filename_in,"latitude")
@@ -230,16 +338,28 @@ subroutine load_best(dat,filename,year0,year1,mv)
     call nc_read(filename,"longitude",dat%lon)
     call nc_read(filename,"latitude", dat%lat)
     
-    call nc_read(filename,"temperature",tas3D,missing_value=mv)
-
-    write(*,*) "done."
-    
     ! Allocate dataset variables to prepare for populating them.
     call dataset_alloc(dat,year0=1850,year1=2020)
 
-    ! Reshape data to 4D array
-    call reshape_to_4D(dat%tas,tas3D,month0=1,mv=mv)
+    ! Calculate grid variables (cell_wt,mask)
+    call calc_cell_weights(dat%cell_wt,dat%lon,dat%lat)
 
+    call nc_read(filename,"land_mask",dat%f_land)
+
+    call which(dat%lat < -60.0_wp .or. dat%lat > 70.0_wp,idx)
+    dat%wt70land = dat%cell_wt*dat%f_land 
+    dat%wt70land(:,idx) = 0.0 
+    dat%wt70land = dat%wt70land / sum(dat%wt70land)
+
+    ! If desired, read and reshape data from file 
+    ! (otherwise, assume this will be done elsewhere)
+    if (load_tas) then 
+        call nc_read(filename,"temperature",tas3D,missing_value=mv)
+        call reshape_to_4D(dat%tas,tas3D,month0=1,mv=mv)
+    end if 
+
+    write(*,*) "load_best... done."
+    
     return 
 
 end subroutine load_best
@@ -285,12 +405,18 @@ subroutine dataset_alloc(dat,year0,year1)
     dat%sigma = [1,2,3,4,5] 
 
     ! Allocate variables to correct size
+    allocate(dat%cell_wt(dat%nx,dat%ny))
+    allocate(dat%f_land(dat%nx,dat%ny))
+    allocate(dat%wt70land(dat%nx,dat%ny))
     allocate(dat%tas(dat%nx,dat%ny,dat%nm,dat%nyr))
     allocate(dat%tas_ref(dat%nx,dat%ny,dat%nm))
     allocate(dat%tas_sm(dat%nx,dat%ny,dat%nm,dat%nyr))
     allocate(dat%tas_detrnd(dat%nx,dat%ny,dat%nm,dat%nyr))
     allocate(dat%tas_sd(dat%nx,dat%ny,dat%nm))
     allocate(dat%tas_sigma(dat%nx,dat%ny,dat%nm,dat%nyr))
+    allocate(dat%tas_rec_hi(dat%nx,dat%ny,dat%nm,dat%nyr))
+
+    allocate(dat%frac_sigma(dat%nyr,dat%nm,dat%nsig))
 
     return 
 
@@ -303,12 +429,18 @@ subroutine dataset_dealloc(dat)
     type(dataset_class), intent(INOUT) :: dat 
 
     ! deallocate variables 
+    if (allocated(dat%cell_wt))     deallocate(dat%cell_wt)
+    if (allocated(dat%f_land))      deallocate(dat%f_land)
+    if (allocated(dat%wt70land))    deallocate(dat%wt70land)
     if (allocated(dat%tas))         deallocate(dat%tas)
     if (allocated(dat%tas_ref))     deallocate(dat%tas_ref)
     if (allocated(dat%tas_sm))      deallocate(dat%tas_sm)
     if (allocated(dat%tas_detrnd))  deallocate(dat%tas_detrnd)
     if (allocated(dat%tas_sd))      deallocate(dat%tas_sd)
     if (allocated(dat%tas_sigma))   deallocate(dat%tas_sigma)
+    if (allocated(dat%tas_rec_hi))  deallocate(dat%tas_rec_hi)
+
+    if (allocated(dat%frac_sigma))  deallocate(dat%frac_sigma)
 
     return 
 
@@ -417,6 +549,140 @@ subroutine test_timeseries(filename,n,mu,sigma,alpha)
 
 end subroutine test_timeseries
 
+
+
+subroutine calc_frac_sigma_series(frac_sigma,tas_sigma,wts,sigma,mv)
+    ! Get spatial fraction of weighted area that is >= sigma-thresholds
+    ! defined in the vector `sigma`. This variable is calculated
+    ! for each month and each year. 
+
+    implicit none 
+
+    real(wp), intent(OUT) :: frac_sigma(:,:,:)      ! [nyr,nm,nsig]
+    real(wp), intent(IN)  :: tas_sigma(:,:,:,:)     ! [nx,ny,nm,nyr]
+    real(wp), intent(IN)  :: wts(:,:)               ! [nx,ny]
+    real(wp), intent(IN)  :: sigma(:)
+    real(wp), intent(IN)  :: mv 
+
+    ! Local variables 
+    integer :: y, m, q, nyr, nm, nsig, nx, ny, n
+    integer,  allocatable :: idx(:)  
+    real(wp), allocatable :: tas_sigma_now(:) 
+    real(wp), allocatable :: wts_now(:) 
+    real(wp) :: wt_tot 
+
+    nx   = size(tas_sigma,1)
+    ny   = size(tas_sigma,2)
+
+    nyr  = size(frac_sigma,1)
+    nm   = size(frac_sigma,2)
+    nsig = size(frac_sigma,3) 
+
+    allocate(tas_sigma_now(nx*ny)) 
+    allocate(wts_now(nx*ny)) 
+
+    ! Initially set missing values everywhere
+    frac_sigma = mv 
+
+    write(*,"(a)",advance="no") "calc_frac_sigma_series..."
+
+    do y = 1, nyr 
+
+        do m = 1, nm 
+
+            ! Get vector variable and weights 
+            tas_sigma_now = reshape(tas_sigma(:,:,m,y),shape=[nx*ny])
+            wts_now       = reshape(wts,shape=[nx*ny])
+
+            where(tas_sigma_now .eq. mv) wts_now = 0.0_wp 
+
+            wt_tot = sum(wts_now) 
+
+            if (wt_tot .gt. 0.0_wp) then 
+
+                do q = 1, nsig 
+
+                    call which( tas_sigma_now .ne. mv       .and. &
+                                tas_sigma_now .ge. sigma(q) .and. &
+                                wts_now .gt. 0.0_wp, idx, n )
+
+                    if (n .gt. 0) then 
+                        frac_sigma(y,m,q) = sum(wts_now(idx)) / wt_tot 
+                    else 
+                        frac_sigma(y,m,q) = 0.0_wp 
+                    end if 
+
+                end do 
+
+            end if 
+
+        end do 
+    end do 
+
+    write(*,*) "done."
+
+    return 
+
+end subroutine calc_frac_sigma_series
+
+subroutine calc_series_records(yrec,y,low_records,mv)
+
+    implicit none 
+
+    real(wp), intent(OUT) :: yrec(:) 
+    real(wp), intent(IN)  :: y(:) 
+    logical,  intent(IN)  :: low_records 
+    real(wp), intent(IN)  :: mv
+
+    ! Local variables 
+    integer :: i, k, nt, n 
+    integer, allocatable :: idx(:) 
+    real(wp) :: ylim 
+
+    nt = size(y) 
+
+    ! Set yrec initially to zero everywhere 
+    yrec = 0
+
+    ! Get indices of available values 
+    call which(y .ne. mv, idx, n)
+
+    if (n .gt. 0) then 
+        ! Data available, proceed with record counting 
+
+        ! Initial value is always a record
+        yrec(idx(1)) = 1
+        ylim         = y(idx(1))
+
+        if (low_records) then 
+            ! Count low records 
+
+            do i = 2, n 
+                k = idx(i) 
+                if (y(k) .lt. ylim) then 
+                    yrec(k) = 1 
+                    ylim    = y(k) 
+                end if 
+            end do 
+
+        else 
+            ! Count high records 
+
+            do i = 2, n
+                k = idx(i)  
+                if (y(k) .gt. ylim) then 
+                    yrec(k) = 1 
+                    ylim    = y(k) 
+                end if 
+            end do 
+
+        end if
+
+    end if 
+
+    return 
+
+end subroutine calc_series_records
 
 subroutine calc_mean(mean,var,mv)
     ! Calculat the standard deviation of a
@@ -576,25 +842,36 @@ subroutine smooth_runmean(ysm,y,x,L,mv)
 
 end subroutine smooth_runmean
 
-subroutine define_time_vectors()
+subroutine calc_cell_weights(cell_wt,lon,lat)
 
     implicit none 
 
+    real(wp), intent(OUT) :: cell_wt(:,:) 
+    real(wp), intent(IN)  :: lon(:) 
+    real(wp), intent(IN)  :: lat(:) 
+    
+    ! Local variables 
+    integer :: i, j, nx, ny 
 
+    nx = size(cell_wt,1)
+    ny = size(cell_wt,2) 
+
+    do j = 1, ny 
+        cell_wt(:,j) = cos(lat(j)*degrees_to_radians)
+    end do 
 
     return 
 
-end subroutine define_time_vectors
+end subroutine calc_cell_weights
 
-
-
-subroutine write_extremes_init(filename,lon,lat,year0,year1)
+subroutine write_extremes_init(filename,lon,lat,sigma,year0,year1)
 
     implicit none 
 
     character(len=*), intent(IN) :: filename 
     real(wp), intent(IN) :: lon(:)
     real(wp), intent(IN) :: lat(:)
+    real(wp), intent(IN) :: sigma(:)
     integer,  intent(IN) :: year0 
     integer,  intent(IN) :: year1 
     
@@ -604,6 +881,9 @@ subroutine write_extremes_init(filename,lon,lat,year0,year1)
     call nc_write_dim(filename,"lat",lat,units="degrees_north", &
                         long_name="Latitude")
     
+    call nc_write_dim(filename,"sigma",sigma,units="", &
+                        long_name="sigma-level")
+
     call nc_write_dim(filename,"month",x=1,dx=1,nx=12, & 
                         units="month",long_name="Month of the year")
     call nc_write_dim(filename,"seas",x=1,dx=1,nx=5, & 
