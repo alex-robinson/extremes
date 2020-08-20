@@ -33,9 +33,19 @@ program calc_extremes
     
 
     type dataset_class 
+        integer :: nx, ny, nm, ns, nyr, nt
         real(wp), allocatable :: lon(:)
         real(wp), allocatable :: lat(:)
+        real(wp), allocatable :: month(:)
+        real(wp), allocatable :: seas(:) 
+        real(wp), allocatable :: year(:) 
+        real(wp), allocatable :: tas3D(:,:,:)
         real(wp), allocatable :: tas(:,:,:,:)
+        real(wp), allocatable :: tas_ref(:,:,:)
+        real(wp), allocatable :: tas_sm(:,:,:,:)
+        real(wp), allocatable :: tas_detrnd(:,:,:,:)
+        real(wp), allocatable :: tas_sd(:,:,:)
+        real(wp), allocatable :: tas_sigma(:,:,:,:)
     end type 
 
     type(dataset_class) :: dat 
@@ -44,21 +54,301 @@ program calc_extremes
     character(len=512) :: filename_out 
 
     ! Test time series calculations 
-    call test_timeseries("test.nc",n=100,mu=0.0_wp,sigma=2.0_wp,alpha=0.0_wp)
-    stop 
+    !call test_timeseries("test.nc",n=100,mu=0.0_wp,sigma=2.0_wp,alpha=0.0_wp)
+    !stop 
 
 
     filename_in  = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1.nc"
     filename_out = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1_stats.nc"
 
-    ! Load data 
+    ! Load data including dimension info (nx,ny)
     call load_best(dat,filename_in,year0=1850,year1=2020,mv=mv)
+
+    ! Perform stats calculations
+    call stats_calc_1(dat,L=15.0_wp,mv=mv)
+    
 
     ! Write output
     call write_extremes_init(filename_out,dat%lon,dat%lat,year0=1850,year1=2020)
-    call nc_write(filename_out,"tas",dat%tas,dim1="lon",dim2="lat",dim3="month",dim4="year")
+    call nc_write(filename_out,"tas",dat%tas,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    call nc_write(filename_out,"tas_sm",dat%tas_sm,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    !call nc_write(filename_out,"tas_detrnd",dat%tas_detrnd,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    call nc_write(filename_out,"tas_sd",dat%tas_sd,dim1="lon",dim2="lat",dim3="month",missing_value=mv)
+    call nc_write(filename_out,"tas_sigma",dat%tas_sigma,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
 
-contains 
+contains
+
+subroutine stats_calc_1(dat,L,mv)
+    ! Given a 4D dataset (nx,ny,nm,nyr), perform 
+    ! initial steps of statistics calculations. 
+
+    implicit none 
+
+    type(dataset_class), intent(INOUT) :: dat 
+    real(wp), intent(IN) :: L 
+    real(wp), intent(IN) :: mv 
+
+    ! Local variables 
+    integer :: i, j, m, y 
+    integer :: nx, ny, nm, nyr, n 
+    integer, allocatable :: idx_ref(:) 
+    integer, allocatable :: idx_sd(:) 
+    integer, allocatable :: idx_numeric(:) 
+
+    integer :: idx_mm(12,3)
+    integer :: m1, m2, m3 
+
+    nx  = size(dat%tas,1)
+    ny  = size(dat%tas,2)
+    nm  = size(dat%tas,3) 
+    nyr = size(dat%tas,4)
+    
+    ! Populate month indices to get 
+    ! three months surrounding a given month 
+    do m = 1, nm 
+        idx_mm(m,:) = [-1,0,1] + m
+    end do 
+    where(idx_mm .eq. 0)  idx_mm = 12 
+    where(idx_mm .eq. 13) idx_mm = 1 
+    
+    write(*,*) "stats_calc_1..."
+
+    ! Get indices of year ranges
+    call which(dat%year .ge. 1951 .and. dat%year .le. 2010,idx_sd)
+
+    ! Initialize all variables with missing values 
+    dat%tas_sm     = mv 
+    dat%tas_detrnd = mv 
+    dat%tas_sd     = mv 
+
+    do i = int(nx/4), 2*int(nx/4)
+        write(*,*) "stats_calc_1...", i, "/", nx 
+    do j = int(ny/4), 2*int(ny/2)
+
+        ! Perform some initial monthly calculations
+        do m = 1, nm 
+
+            ! Calculate reference climate 
+            call which(dat%year .ge. 1951 .and. dat%year .le. 1980 .and. &
+                        dat%tas(i,j,m,:) .ne. mv, idx_ref,n)
+            dat%tas_ref(i,j,m) = mv
+            if (n .gt. 0) then 
+                dat%tas_ref(i,j,m) = sum(dat%tas(i,j,m,idx_ref)) / real(n,wp)
+            end if
+            
+            ! Calculate smooth time series 
+            call smooth_runmean(dat%tas_sm(i,j,m,:),dat%tas(i,j,m,:),dat%year,L,mv)
+            
+            ! Calculate detrended data
+            call which(dat%tas(i,j,m,:) .ne. mv,idx_numeric,n)
+            dat%tas_detrnd(i,j,m,:) = mv
+            if (n .gt. 0) then 
+                dat%tas_detrnd(i,j,m,idx_numeric) = dat%tas(i,j,m,idx_numeric) - dat%tas_sm(i,j,m,idx_numeric) 
+            end if
+              
+        end do 
+
+        ! With reference, smoothed and detrended data available for all months,
+        ! perform additional monthly calculations 
+        do m = 1, nm 
+            m1 = idx_mm(m,1)
+            m2 = idx_mm(m,2)
+            m3 = idx_mm(m,3)
+            
+            ! Perform standard deviation calculations over multiple months 
+            ! for the year range of interest
+            call calc_stdev(dat%tas_sd(i,j,m),[ dat%tas_detrnd(i,j,m1,idx_sd), &
+                                                dat%tas_detrnd(i,j,m2,idx_sd), &
+                                                dat%tas_detrnd(i,j,m3,idx_sd) ], mv=mv)
+
+            ! Calculate the normalized temp anomaly
+            call calc_tas_sigma(dat%tas_sigma(i,j,m,:),dat%tas(i,j,m,:), &
+                                        dat%tas_ref(i,j,m),dat%tas_sd(i,j,m),mv)
+
+        end do
+
+    end do 
+    end do 
+
+    write(*,*) "stats_calc_1... done."
+
+    return 
+
+end subroutine stats_calc_1
+
+subroutine calc_tas_sigma(tas_sigma,tas,tas_ref,tas_sd,mv)
+
+    implicit none 
+
+    real(wp), intent(OUT) :: tas_sigma(:) 
+    real(wp), intent(IN)  :: tas(:) 
+    real(wp), intent(IN)  :: tas_ref 
+    real(wp), intent(IN)  :: tas_sd 
+    real(wp), intent(IN)  :: mv 
+
+    ! Local variables 
+    integer :: i 
+
+    tas_sigma = mv 
+
+    if (tas_ref .ne. mv .and. tas_sd .ne. mv) then 
+        where(tas .ne. mv) tas_sigma = (tas - tas_ref) / tas_sd 
+    end if
+
+    return 
+
+end subroutine calc_tas_sigma
+
+subroutine load_best(dat,filename,year0,year1,mv)
+
+    implicit none 
+
+    type(dataset_class), intent(OUT) :: dat 
+    character(len=*), intent(IN) :: filename 
+    integer,  intent(IN)  :: year0 
+    integer,  intent(IN)  :: year1
+    real(wp), intent(IN)  :: mv 
+
+    ! Local variables  
+    real(wp), allocatable :: tas3D(:,:,:)
+    
+    write(*,"(a)",advance="no") "load_best..."
+
+    dat%nx = nc_size(filename_in,"longitude")
+    dat%ny = nc_size(filename_in,"latitude")
+    dat%nt = nc_size(filename_in,"time")
+
+    allocate(dat%lon(dat%nx))
+    allocate(dat%lat(dat%ny)) 
+    allocate(tas3D(dat%nx,dat%ny,dat%nt))
+
+    call nc_read(filename,"longitude",dat%lon)
+    call nc_read(filename,"latitude", dat%lat)
+    
+    call nc_read(filename,"temperature",tas3D,missing_value=mv)
+
+    write(*,*) "done."
+    
+    ! Allocate dataset variables to prepare for populating them.
+    call dataset_alloc(dat,year0=1850,year1=2020)
+
+    ! Reshape data to 4D array
+    call reshape_to_4D(dat%tas,tas3D,month0=1,mv=mv)
+
+    return 
+
+end subroutine load_best
+
+subroutine dataset_alloc(dat,year0,year1)
+
+    implicit none 
+
+    type(dataset_class), intent(INOUT) :: dat 
+    integer, intent(IN) :: year0 
+    integer, intent(IN) :: year1 
+    
+    ! Local variables
+    integer :: k 
+    integer :: nyr, nm, ns  
+
+    dat%nm  = 12
+    dat%ns  = 5 
+    dat%nyr = year1 - year0 + 1
+    
+    ! First ensure variables are deallocated 
+    call dataset_dealloc(dat)
+
+    ! Allocate and populate dimensions
+    allocate(dat%month(dat%nm))
+    allocate(dat%seas(dat%ns))
+    allocate(dat%year(dat%nyr))
+
+    do k = 1, dat%nm 
+        dat%month(k) = k 
+    end do 
+
+    do k = 1, dat%ns 
+        dat%seas(k) = k 
+    end do 
+    
+    do k = 1, dat%nyr 
+        dat%year(k) = year0 + (k-1)
+    end do 
+    
+    ! Allocate variables to correct size
+    allocate(dat%tas(dat%nx,dat%ny,dat%nm,dat%nyr))
+    allocate(dat%tas_ref(dat%nx,dat%ny,dat%nm))
+    allocate(dat%tas_sm(dat%nx,dat%ny,dat%nm,dat%nyr))
+    allocate(dat%tas_detrnd(dat%nx,dat%ny,dat%nm,dat%nyr))
+    allocate(dat%tas_sd(dat%nx,dat%ny,dat%nm))
+    allocate(dat%tas_sigma(dat%nx,dat%ny,dat%nm,dat%nyr))
+
+    return 
+
+end subroutine dataset_alloc
+
+subroutine dataset_dealloc(dat)
+
+    implicit none 
+
+    type(dataset_class), intent(INOUT) :: dat 
+
+    ! deallocate variables 
+    if (allocated(dat%tas))         deallocate(dat%tas)
+    if (allocated(dat%tas_ref))     deallocate(dat%tas_ref)
+    if (allocated(dat%tas_sm))      deallocate(dat%tas_sm)
+    if (allocated(dat%tas_detrnd))  deallocate(dat%tas_detrnd)
+    if (allocated(dat%tas_sd))      deallocate(dat%tas_sd)
+    if (allocated(dat%tas_sigma))   deallocate(dat%tas_sigma)
+
+    return 
+
+end subroutine dataset_dealloc
+
+subroutine reshape_to_4D(var4D,var3D,month0,mv)
+
+    implicit none 
+
+    real(wp), intent(OUT) :: var4D(:,:,:,:) 
+    real(wp), intent(IN)  :: var3D(:,:,:) 
+    integer,  intent(IN)  :: month0 
+    real(wp), intent(IN)  :: mv 
+
+    ! Local variables 
+    integer :: i, j, y, m, k 
+    integer :: nx, ny, nt, nyr, nm 
+
+    nx = size(var3D,1)
+    ny = size(var3D,2)
+    nt = size(var3D,3)
+    nm = 12 
+    nyr = size(var4D,4)
+
+    var4D = mv 
+
+    k = 0 
+
+    write(*,"(a)",advance="no") "reshape_to_4D..."
+
+    do y = 1, nyr 
+    do m = 1, nm 
+
+        if ( (y .eq. 1 .and. m .ge. month0) .or. y .gt. 1 ) then 
+            
+            k = k+1 
+            var4D(:,:,m,y) = var3D(:,:,k)
+
+            if (k .eq. nt) exit 
+        end if 
+
+    end do 
+    end do 
+
+    write(*,*) "done."
+
+    return 
+
+end subroutine reshape_to_4D
 
 subroutine test_timeseries(filename,n,mu,sigma,alpha)
 
@@ -117,95 +407,6 @@ subroutine test_timeseries(filename,n,mu,sigma,alpha)
     return 
 
 end subroutine test_timeseries
-
-
-subroutine load_best(dat,filename,year0,year1,mv)
-
-    implicit none 
-
-    type(dataset_class), intent(OUT) :: dat 
-    character(len=*), intent(IN) :: filename 
-    integer, intent(IN) :: year0 
-    integer, intent(IN) :: year1 
-    real(wp), intent(IN)  :: mv 
-
-    ! Local variables 
-    integer :: nx, ny, nt, nyr, nm 
-    real(wp), allocatable :: tas3D(:,:,:)
-    
-    write(*,"(a)",advance="no") "load_best..."
-
-    nx = nc_size(filename_in,"longitude")
-    ny = nc_size(filename_in,"latitude")
-    nt = nc_size(filename_in,"time")
-
-    allocate(dat%lon(nx))
-    allocate(dat%lat(ny)) 
-    allocate(tas3D(nx,ny,nt))
-
-    call nc_read(filename,"longitude",dat%lon)
-    call nc_read(filename,"latitude", dat%lat)
-    
-    call nc_read(filename,"temperature",tas3D,missing_value=mv)
-
-    write(*,*) "done."
-    
-    ! Reshape best data to 4D array
-    call reshape_to_4D(dat%tas,tas3D,month0=1,mv=mv)
-
-
-    return 
-
-end subroutine load_best
-
-subroutine reshape_to_4D(var4D,var3D,month0,mv)
-
-    implicit none 
-
-    real(wp), allocatable, intent(OUT) :: var4D(:,:,:,:) 
-    real(wp), intent(IN)  :: var3D(:,:,:) 
-    integer,  intent(IN)  :: month0 
-    real(wp), intent(IN)  :: mv 
-
-    ! Local variables 
-    integer :: i, j, y, m, k 
-    integer :: nx, ny, nt, nyr, nm 
-
-    nx = size(var3D,1)
-    ny = size(var3D,2)
-    nt = size(var3D,3)
-    nm = 12 
-
-    nyr = ceiling(real(nt,wp) / real(nm,wp))
-
-    if (allocated(var4D)) deallocate(var4D)
-    allocate(var4D(nx,ny,nm,nyr))
-
-    var4D = mv 
-
-    k = 0 
-
-    write(*,"(a)",advance="no") "reshape_to_4D..."
-
-    do y = 1, nyr 
-    do m = 1, nm 
-
-        if ( (y .eq. 1 .and. m .ge. month0) .or. y .gt. 1 ) then 
-            
-            k = k+1 
-            var4D(:,:,m,y) = var3D(:,:,k)
-
-            if (k .eq. nt) exit 
-        end if 
-
-    end do 
-    end do 
-
-    write(*,*) "done."
-
-    return 
-
-end subroutine reshape_to_4D
 
 
 subroutine calc_mean(mean,var,mv)
