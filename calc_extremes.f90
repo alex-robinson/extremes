@@ -33,12 +33,13 @@ program calc_extremes
     
 
     type dataset_class 
-        integer :: nx, ny, nm, ns, nyr, nt
+        integer :: nx, ny, nm, ns, nyr, nt, nsig 
         real(wp), allocatable :: lon(:)
         real(wp), allocatable :: lat(:)
         real(wp), allocatable :: month(:)
         real(wp), allocatable :: seas(:) 
         real(wp), allocatable :: year(:) 
+        real(wp), allocatable :: sigma(:) 
         real(wp), allocatable :: tas3D(:,:,:)
         real(wp), allocatable :: tas(:,:,:,:)
         real(wp), allocatable :: tas_ref(:,:,:)
@@ -121,9 +122,13 @@ subroutine stats_calc_1(dat,L,mv)
     dat%tas_detrnd = mv 
     dat%tas_sd     = mv 
 
-    do i = int(nx/4), 2*int(nx/4)
+    ! do i = int(nx/4), 2*int(nx/4)
+    !     write(*,*) "stats_calc_1...", i, "/", nx 
+    ! do j = int(ny/4), 2*int(ny/2)
+
+    do i = 1, nx 
         write(*,*) "stats_calc_1...", i, "/", nx 
-    do j = int(ny/4), 2*int(ny/2)
+    do j = 1, ny 
 
         ! Perform some initial monthly calculations
         do m = 1, nm 
@@ -251,10 +256,11 @@ subroutine dataset_alloc(dat,year0,year1)
     integer :: k 
     integer :: nyr, nm, ns  
 
-    dat%nm  = 12
-    dat%ns  = 5 
-    dat%nyr = year1 - year0 + 1
-    
+    dat%nm   = 12
+    dat%ns   = 5 
+    dat%nyr  = year1 - year0 + 1
+    dat%nsig = 5
+
     ! First ensure variables are deallocated 
     call dataset_dealloc(dat)
 
@@ -262,6 +268,7 @@ subroutine dataset_alloc(dat,year0,year1)
     allocate(dat%month(dat%nm))
     allocate(dat%seas(dat%ns))
     allocate(dat%year(dat%nyr))
+    allocate(dat%sigma(dat%nsig))
 
     do k = 1, dat%nm 
         dat%month(k) = k 
@@ -275,6 +282,8 @@ subroutine dataset_alloc(dat,year0,year1)
         dat%year(k) = year0 + (k-1)
     end do 
     
+    dat%sigma = [1,2,3,4,5] 
+
     ! Allocate variables to correct size
     allocate(dat%tas(dat%nx,dat%ny,dat%nm,dat%nyr))
     allocate(dat%tas_ref(dat%nx,dat%ny,dat%nm))
