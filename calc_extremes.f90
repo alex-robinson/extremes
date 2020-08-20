@@ -1,9 +1,10 @@
 !! TO COMPILE : 
-!! gfortran -o calc_extremes.x -I/opt/local/include libs/ncio.f90 calc_extremes.f90 -L/opt/local/lib -lnetcdff -lnetcdf
+!! gfortran -o calc_extremes.x -I/opt/local/include libs/ncio.f90 libs/index.f90 calc_extremes.f90 -L/opt/local/lib -lnetcdff -lnetcdf
 
 program calc_extremes 
 
     use ncio 
+    use index 
 
     implicit none 
 
@@ -42,23 +43,13 @@ program calc_extremes
     character(len=512) :: filename_in 
     character(len=512) :: filename_out 
 
-    integer, parameter :: ntest = 1000
-    real(wp) :: var(ntest)
-    real(wp) :: stdev 
+    ! Test time series calculations 
+    call test_timeseries("test.nc",n=100,mu=0.0_wp,sigma=2.0_wp,alpha=0.0_wp)
+    stop 
 
-    integer :: i 
 
     filename_in  = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1.nc"
     filename_out = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1_stats.nc"
-
-
-    ! Test standard deviation 
-    call random_seed
-    do i = 1, ntest 
-        call random_number(var(i))
-    end do 
-    call calc_stdev(stdev,var,mv)
-    stop 
 
     ! Load data 
     call load_best(dat,filename_in,year0=1850,year1=2020,mv=mv)
@@ -68,6 +59,65 @@ program calc_extremes
     call nc_write(filename_out,"tas",dat%tas,dim1="lon",dim2="lat",dim3="month",dim4="year")
 
 contains 
+
+subroutine test_timeseries(filename,n,mu,sigma,alpha)
+
+    implicit none 
+
+    character(len=*), intent(IN) :: filename 
+    integer, intent(IN) :: n 
+
+    real(wp), intent(IN) :: mu 
+    real(wp), intent(IN) :: sigma 
+    real(wp), intent(IN) :: alpha 
+
+    ! Local variables 
+    integer :: i, j
+    real(wp) :: tmp  
+    real(wp) :: x(n)
+    real(wp) :: y(n)
+    real(wp) :: ysm(n)
+    real(wp) :: mean, stdev 
+
+    call random_seed
+    
+    ! Get a random time series
+    do i = 1, n
+        x(i) = real(i,wp) 
+        !call random_number(y(i))
+        call random_number_normal(y(i),mu,sigma) 
+        y(i) = y(i) + (x(i)-1.0)*alpha
+    end do 
+
+    ! Add missing values 
+    do i = 1, int(n*0.2)
+        call random_number(tmp)     ! Random number from 0-1
+        j = floor(tmp*(n-1))+1      ! Random number from 1 to n
+        y(j) = mv
+    end do 
+
+    ! Test running mean smoothing 
+    call smooth_runmean(ysm,y,x,L=15.0_wp,mv=mv)
+
+    ! Test standard deviation
+    call calc_mean(mean,y,mv)
+    call calc_stdev(stdev,y,mv)
+
+    write(*, "(a, i0)") "sample size = ", n
+    write(*, "(a, f17.15)") "Mean :   ", mean
+    write(*, "(a, f17.15)") "Stddev : ", stdev  
+
+    call nc_create(filename)
+    call nc_write_dim(filename,"x",x)
+    call nc_write(filename,"y",y,dim1="x")
+    call nc_write(filename,"ysm",ysm,dim1="x")
+
+    stop 
+
+    return 
+
+end subroutine test_timeseries
+
 
 subroutine load_best(dat,filename,year0,year1,mv)
 
@@ -158,7 +208,52 @@ subroutine reshape_to_4D(var4D,var3D,month0,mv)
 end subroutine reshape_to_4D
 
 
+subroutine calc_mean(mean,var,mv)
+    ! Calculat the standard deviation of a
+    ! vector of values, excluding missing values.
+
+    implicit none 
+
+    real(wp), intent(OUT) :: mean 
+    real(wp), intent(IN)  :: var(:)
+    real(wp), intent(IN)  :: mv 
+
+    ! Local variables 
+    integer :: i, n
+    real(wp) :: nsamples 
+    real(wp) :: var_sum
+
+    n = size(var,1) 
+
+    nsamples   = 0.0
+    var_sum    = 0.0 
+
+    do i = 1, n 
+        if (var(i) .ne. mv) then 
+            nsamples = nsamples + 1
+            var_sum   = var_sum + var(i) 
+        end if 
+    end do 
+
+    if (nsamples .gt. 0.0) then 
+        ! If samples exist, calculate standard deviation 
+
+        mean   = var_sum / nsamples
+
+    else 
+        ! Set standard deviation equal to missing value 
+
+        mean = mv 
+
+    end if 
+
+    return 
+
+end subroutine calc_mean
+
 subroutine calc_stdev(stdev,var,mv)
+    ! Calculat the standard deviation of a
+    ! vector of values, excluding missing values.
 
     implicit none 
 
@@ -193,10 +288,6 @@ subroutine calc_stdev(stdev,var,mv)
         mean   = var_sum / nsamples
         stdev = sqrt(var_sum_sq/nsamples - mean*mean)
 
-        write(*, "(a, i0)") "sample size = ", n
-        write(*, "(a, f17.15)") "Mean :   ", mean
-        write(*, "(a, f17.15)") "Stddev : ", stdev  
-
     else 
         ! Set standard deviation equal to missing value 
 
@@ -208,6 +299,72 @@ subroutine calc_stdev(stdev,var,mv)
 
 end subroutine calc_stdev
 
+subroutine random_number_normal(val,mu,sigma)
+    ! Given a random number sampled from a uniform distribution
+    ! (ie, using `random_number`), transform number to a sample
+    ! from a normal distribution with mean mu and stdev sigma.
+    ! Uses the Box-Muller transform:
+    ! https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
+
+    implicit none 
+
+    real(wp), intent(OUT) :: val 
+    real(wp), intent(IN)  :: mu 
+    real(wp), intent(IN)  :: sigma 
+    
+    ! Local variables 
+    real(wp) :: u1, u2, z0 
+    real(wp), parameter :: two_pi = 2.0_wp * pi 
+    
+    ! Note, random seed should be initialized externally
+    !call random_seed
+
+    call random_number(u1)
+    call random_number(u2)
+
+    ! Normal distribution with (0,1)
+    z0 = sqrt(-2.0_wp * log(u1)) * cos(two_pi * u2)
+
+    ! Apply our mean and stdev
+    val = z0 * sigma + mu
+
+    return 
+
+end subroutine random_number_normal
+
+subroutine smooth_runmean(ysm,y,x,L,mv)
+    ! Calculate smooth vector using the running
+    ! mean, with a window half-length of L 
+    ! (smoothing window is L*2+1), accounting for 
+    ! missing values
+
+    implicit none 
+
+    real(wp), intent(OUT) :: ysm(:) 
+    real(wp), intent(IN)  :: y(:)
+    real(wp), intent(IN)  :: x(:) 
+    real(wp), intent(IN)  :: L 
+    real(wp), intent(IN)  :: mv 
+
+    ! Local variables 
+    integer :: i, n, n_now 
+    integer, allocatable :: idx(:) 
+
+    n = size(y,1) 
+
+    ! Initialize output vector with missing values 
+    ysm = mv 
+
+    do i = 1, n
+        call which(x .ge. x(i)-L .and. x .le. x(i)+L .and. y .ne. mv,idx,n_now)
+        if (n_now .gt. 0) then 
+            ysm(i) = sum(y(idx)) / real(n_now,wp)
+        end if 
+    end do  
+
+    return 
+
+end subroutine smooth_runmean
 
 subroutine define_time_vectors()
 
