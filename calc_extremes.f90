@@ -42,9 +42,23 @@ program calc_extremes
     character(len=512) :: filename_in 
     character(len=512) :: filename_out 
 
-    
+    integer, parameter :: ntest = 1000
+    real(wp) :: var(ntest)
+    real(wp) :: stdev 
+
+    integer :: i 
+
     filename_in  = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1.nc"
     filename_out = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1_stats.nc"
+
+
+    ! Test standard deviation 
+    call random_seed
+    do i = 1, ntest 
+        call random_number(var(i))
+    end do 
+    call calc_stdev(stdev,var,mv)
+    stop 
 
     ! Load data 
     call load_best(dat,filename_in,year0=1850,year1=2020,mv=mv)
@@ -142,6 +156,57 @@ subroutine reshape_to_4D(var4D,var3D,month0,mv)
     return 
 
 end subroutine reshape_to_4D
+
+
+subroutine calc_stdev(stdev,var,mv)
+
+    implicit none 
+
+    real(wp), intent(OUT) :: stdev 
+    real(wp), intent(IN)  :: var(:)
+    real(wp), intent(IN)  :: mv 
+
+    ! Local variables 
+    integer :: i, n
+    real(wp) :: nsamples 
+    real(wp) :: var_sum, var_sum_sq
+    real(wp) :: mean 
+
+
+    n = size(var,1) 
+
+    nsamples   = 0.0
+    var_sum    = 0.0 
+    var_sum_sq = 0.0 
+
+    do i = 1, n 
+        if (var(i) .ne. mv) then 
+            nsamples = nsamples + 1
+            var_sum   = var_sum + var(i) 
+            var_sum_sq = var_sum_sq + var(i)*var(i) 
+        end if 
+    end do 
+
+    if (nsamples .gt. 0.0) then 
+        ! If samples exist, calculate standard deviation 
+
+        mean   = var_sum / nsamples
+        stdev = sqrt(var_sum_sq/nsamples - mean*mean)
+
+        write(*, "(a, i0)") "sample size = ", n
+        write(*, "(a, f17.15)") "Mean :   ", mean
+        write(*, "(a, f17.15)") "Stddev : ", stdev  
+
+    else 
+        ! Set standard deviation equal to missing value 
+
+        stdev = mv 
+
+    end if 
+
+    return 
+
+end subroutine calc_stdev
 
 
 subroutine define_time_vectors()
