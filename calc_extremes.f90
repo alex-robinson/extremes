@@ -62,9 +62,12 @@ program calc_extremes
         real(wp), allocatable :: tas_sigma(:,:,:,:)
 
         real(wp), allocatable :: tas_rec_hi(:,:,:,:)
+        real(wp), allocatable :: tas_rec_hi_lin(:,:,:,:)
+        real(wp), allocatable :: tas_lin_m(:,:,:) 
+        real(wp), allocatable :: tas_lin_r(:,:,:)
 
         real(wp), allocatable :: frac_sigma(:,:,:) 
-
+        
     end type 
 
     type(dataset_class) :: dat 
@@ -77,9 +80,8 @@ program calc_extremes
     logical :: load_stats_1 
 
     ! Test time series calculations 
-    call test_timeseries("test.nc",n=1000,mu=0.0_wp,sigma=2.0_wp,alpha=0.1_wp)
-    stop 
-
+    ! call test_timeseries("test.nc",n=1000,mu=0.0_wp,sigma=2.0_wp,alpha=0.1_wp)
+    ! stop 
 
     filename_in    = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1.nc"
     filename_out_1 = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1_stats_1.nc"
@@ -108,8 +110,13 @@ if (load_stats_1) then
     call nc_read(filename_out_1,"tas",          dat%tas,        missing_value=mv)
     call nc_read(filename_out_1,"tas_sm",       dat%tas_sm,     missing_value=mv)
     call nc_read(filename_out_1,"tas_detrnd",   dat%tas_detrnd, missing_value=mv)
+    call nc_read(filename_out_1,"tas_lin_m",    dat%tas_lin_m,  missing_value=mv)
+    call nc_read(filename_out_1,"tas_lin_r",    dat%tas_lin_r,  missing_value=mv)
     call nc_read(filename_out_1,"tas_sd",       dat%tas_sd,     missing_value=mv)
     call nc_read(filename_out_1,"tas_sigma",    dat%tas_sigma,  missing_value=mv)
+
+    call nc_read(filename_out_1,"tas_rec_hi",    dat%tas_rec_hi,    missing_value=mv)
+    call nc_read(filename_out_1,"tas_rec_hi_lin",dat%tas_rec_hi_lin,missing_value=mv)
 
 else 
     ! Calculate stats1 
@@ -122,19 +129,24 @@ else
     ! Initialize file and write grid variables
     call write_extremes_init(filename_out_1,dat%lon,dat%lat,dat%sigma,year0=1850,year1=2020)
     
+    call nc_write(filename_out_1,"tas_rec_hi_lin",dat%tas_rec_hi_lin, &
+                    dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    
     call nc_write(filename_out_1,"cell_wt", dat%cell_wt, dim1="lon",dim2="lat")
     call nc_write(filename_out_1,"f_land",  dat%f_land,  dim1="lon",dim2="lat")
     call nc_write(filename_out_1,"wt70land",dat%wt70land,dim1="lon",dim2="lat")
     
     ! Write variables
-    call nc_write(filename_out_1,"tas",dat%tas,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
-    call nc_write(filename_out_1,"tas_sm",dat%tas_sm,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    call nc_write(filename_out_1,"tas",       dat%tas,       dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    call nc_write(filename_out_1,"tas_sm",    dat%tas_sm,    dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
     call nc_write(filename_out_1,"tas_detrnd",dat%tas_detrnd,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
-    call nc_write(filename_out_1,"tas_sd",dat%tas_sd,dim1="lon",dim2="lat",dim3="month",missing_value=mv)
-    call nc_write(filename_out_1,"tas_sigma",dat%tas_sigma,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    call nc_write(filename_out_1,"tas_lin_m", dat%tas_lin_m, dim1="lon",dim2="lat",dim3="month",missing_value=mv)
+    call nc_write(filename_out_1,"tas_lin_r", dat%tas_lin_r, dim1="lon",dim2="lat",dim3="month",missing_value=mv)
+    call nc_write(filename_out_1,"tas_sd",    dat%tas_sd,    dim1="lon",dim2="lat",dim3="month",missing_value=mv)
+    call nc_write(filename_out_1,"tas_sigma", dat%tas_sigma, dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
 
-    call nc_write(filename_out_1,"tas_rec_hi",dat%tas_rec_hi,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
-
+    ! call nc_write(filename_out_1,"tas_rec_hi",dat%tas_rec_hi,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    
 end if 
     
     call stats_calc_2(dat,mv)
@@ -160,10 +172,12 @@ subroutine stats_calc_1(dat,L,mv)
     integer :: nx, ny, nm, nyr, n 
     integer, allocatable :: idx_ref(:) 
     integer, allocatable :: idx_sd(:) 
+    integer, allocatable :: idx_lin(:) 
     integer, allocatable :: idx_numeric(:) 
 
-    integer :: idx_mm(12,3)
-    integer :: m1, m2, m3 
+    integer  :: idx_mm(12,3)
+    integer  :: m1, m2, m3 
+    real(wp) :: lin_b 
 
     nx  = size(dat%tas,1)
     ny  = size(dat%tas,2)
@@ -182,11 +196,18 @@ subroutine stats_calc_1(dat,L,mv)
 
     ! Get indices of year ranges
     call which(dat%year .ge. 1951 .and. dat%year .le. 2010,idx_sd)
+    call which(dat%year .ge. 1971 .and. dat%year .le. 2020,idx_lin)
 
     ! Initialize all variables with missing values 
+    dat%tas_ref    = mv 
     dat%tas_sm     = mv 
     dat%tas_detrnd = mv 
+    dat%tas_rec_hi = mv
+    dat%tas_rec_hi_lin = mv
+    dat%tas_lin_m  = mv
+    dat%tas_lin_r  = mv
     dat%tas_sd     = mv 
+    dat%tas_sigma  = mv 
 
     ! do i = int(nx/4), 2*int(nx/4)
     !     write(*,*) "stats_calc_1...", i, "/", nx 
@@ -219,6 +240,11 @@ subroutine stats_calc_1(dat,L,mv)
             
             ! Calculate records 
             call calc_series_records(dat%tas_rec_hi(i,j,m,:),dat%tas(i,j,m,:),low_records=.FALSE.,mv=mv)
+            call calc_series_records(dat%tas_rec_hi_lin(i,j,m,:),dat%tas(i,j,m,:),low_records=.FALSE.,mv=mv,idx=idx_lin)
+
+            ! Calculate linear regression 
+            call calc_linear_regression(dat%tas_lin_m(i,j,m),lin_b,dat%tas_lin_r(i,j,m), &
+                                            dat%tas(i,j,m,idx_lin),dat%year(idx_lin),mv)
 
         end do 
 
@@ -419,6 +445,10 @@ subroutine dataset_alloc(dat,year0,year1)
     allocate(dat%tas_sd(dat%nx,dat%ny,dat%nm))
     allocate(dat%tas_sigma(dat%nx,dat%ny,dat%nm,dat%nyr))
     allocate(dat%tas_rec_hi(dat%nx,dat%ny,dat%nm,dat%nyr))
+    allocate(dat%tas_rec_hi_lin(dat%nx,dat%ny,dat%nm,dat%nyr))
+
+    allocate(dat%tas_lin_m(dat%nx,dat%ny,dat%nm))
+    allocate(dat%tas_lin_r(dat%nx,dat%ny,dat%nm))
 
     allocate(dat%frac_sigma(dat%nyr,dat%nm,dat%nsig))
 
@@ -433,18 +463,19 @@ subroutine dataset_dealloc(dat)
     type(dataset_class), intent(INOUT) :: dat 
 
     ! deallocate variables 
-    if (allocated(dat%cell_wt))     deallocate(dat%cell_wt)
-    if (allocated(dat%f_land))      deallocate(dat%f_land)
-    if (allocated(dat%wt70land))    deallocate(dat%wt70land)
-    if (allocated(dat%tas))         deallocate(dat%tas)
-    if (allocated(dat%tas_ref))     deallocate(dat%tas_ref)
-    if (allocated(dat%tas_sm))      deallocate(dat%tas_sm)
-    if (allocated(dat%tas_detrnd))  deallocate(dat%tas_detrnd)
-    if (allocated(dat%tas_sd))      deallocate(dat%tas_sd)
-    if (allocated(dat%tas_sigma))   deallocate(dat%tas_sigma)
-    if (allocated(dat%tas_rec_hi))  deallocate(dat%tas_rec_hi)
+    if (allocated(dat%cell_wt))         deallocate(dat%cell_wt)
+    if (allocated(dat%f_land))          deallocate(dat%f_land)
+    if (allocated(dat%wt70land))        deallocate(dat%wt70land)
+    if (allocated(dat%tas))             deallocate(dat%tas)
+    if (allocated(dat%tas_ref))         deallocate(dat%tas_ref)
+    if (allocated(dat%tas_sm))          deallocate(dat%tas_sm)
+    if (allocated(dat%tas_detrnd))      deallocate(dat%tas_detrnd)
+    if (allocated(dat%tas_sd))          deallocate(dat%tas_sd)
+    if (allocated(dat%tas_sigma))       deallocate(dat%tas_sigma)
+    if (allocated(dat%tas_rec_hi))      deallocate(dat%tas_rec_hi)
+    if (allocated(dat%tas_rec_hi_lin))  deallocate(dat%tas_rec_hi_lin)
 
-    if (allocated(dat%frac_sigma))  deallocate(dat%frac_sigma)
+    if (allocated(dat%frac_sigma))      deallocate(dat%frac_sigma)
 
     return 
 
@@ -541,7 +572,7 @@ subroutine test_timeseries(filename,n,mu,sigma,alpha)
 
     ! Test linear regression 
     call calc_linear_regression(m,b,r,y,x,mv)
-    
+
     write(*, "(a, i0)") "sample size = ", n
     write(*, "(a, f10.3)") "Mean      : ", mean
     write(*, "(a, f10.3)") "Stddev    : ", stdev  
@@ -635,7 +666,7 @@ subroutine calc_frac_sigma_series(frac_sigma,tas_sigma,wts,sigma,mv)
 
 end subroutine calc_frac_sigma_series
 
-subroutine calc_series_records(yrec,y,low_records,mv)
+subroutine calc_series_records(yrec,y,low_records,mv,idx)
 
     implicit none 
 
@@ -643,35 +674,49 @@ subroutine calc_series_records(yrec,y,low_records,mv)
     real(wp), intent(IN)  :: y(:) 
     logical,  intent(IN)  :: low_records 
     real(wp), intent(IN)  :: mv
+    integer,  intent(IN), optional :: idx(:)
 
     ! Local variables 
     integer :: i, k, nt, n 
-    integer, allocatable :: idx(:) 
+    integer,  allocatable :: idx_now(:) 
+    real(wp), allocatable :: y_now(:) 
     real(wp) :: ylim 
 
     nt = size(y) 
+    allocate(y_now(nt)) 
+    y_now = y 
+
+    if (present(idx)) then 
+        ! Remove values that should not be treated 
+        do k = 1, nt 
+            if (.not. any(idx .eq. k)) then 
+                y_now(k) = mv 
+            end if 
+        end do 
+    end if 
 
     ! Set yrec initially to zero everywhere 
     yrec = 0
 
     ! Get indices of available values 
-    call which(y .ne. mv, idx, n)
+    call which(y_now .ne. mv, idx_now, n)
 
     if (n .gt. 0) then 
         ! Data available, proceed with record counting 
 
         ! Initial value is always a record
-        yrec(idx(1)) = 1
-        ylim         = y(idx(1))
+        k = idx_now(1) 
+        yrec(k) = 1
+        ylim    = y_now(k)
 
         if (low_records) then 
             ! Count low records 
 
             do i = 2, n 
-                k = idx(i) 
-                if (y(k) .lt. ylim) then 
+                k = idx_now(i) 
+                if (y_now(k) .lt. ylim) then 
                     yrec(k) = 1 
-                    ylim    = y(k) 
+                    ylim    = y_now(k) 
                 end if 
             end do 
 
@@ -679,10 +724,10 @@ subroutine calc_series_records(yrec,y,low_records,mv)
             ! Count high records 
 
             do i = 2, n
-                k = idx(i)  
-                if (y(k) .gt. ylim) then 
+                k = idx_now(i)  
+                if (y_now(k) .gt. ylim) then 
                     yrec(k) = 1 
-                    ylim    = y(k) 
+                    ylim    = y_now(k) 
                 end if 
             end do 
 
