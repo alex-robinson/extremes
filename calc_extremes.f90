@@ -6,6 +6,8 @@ program calc_extremes
     use ncio 
     use index 
 
+    use ieee_arithmetic  ! for nan-checks 
+
     implicit none 
 
 
@@ -75,8 +77,8 @@ program calc_extremes
     logical :: load_stats_1 
 
     ! Test time series calculations 
-    !call test_timeseries("test.nc",n=100,mu=0.0_wp,sigma=2.0_wp,alpha=0.0_wp)
-    !stop 
+    call test_timeseries("test.nc",n=1000,mu=0.0_wp,sigma=2.0_wp,alpha=0.1_wp)
+    stop 
 
 
     filename_in    = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1.nc"
@@ -355,6 +357,8 @@ subroutine load_best(dat,filename,year0,year1,mv,load_tas)
     ! (otherwise, assume this will be done elsewhere)
     if (load_tas) then 
         call nc_read(filename,"temperature",tas3D,missing_value=mv)
+        where(abs(tas3D) .gt. 1e10) tas3D = mv          ! For safety
+        where(.not. ieee_is_finite(tas3D)) tas3D = mv 
         call reshape_to_4D(dat%tas,tas3D,month0=1,mv=mv)
     end if 
 
@@ -509,6 +513,7 @@ subroutine test_timeseries(filename,n,mu,sigma,alpha)
     real(wp) :: y(n)
     real(wp) :: ysm(n)
     real(wp) :: mean, stdev 
+    real(wp) :: m, b, r 
 
     call random_seed
     
@@ -534,16 +539,21 @@ subroutine test_timeseries(filename,n,mu,sigma,alpha)
     call calc_mean(mean,y,mv)
     call calc_stdev(stdev,y,mv)
 
+    ! Test linear regression 
+    call calc_linear_regression(m,b,r,y,x,mv)
+    
     write(*, "(a, i0)") "sample size = ", n
-    write(*, "(a, f17.15)") "Mean :   ", mean
-    write(*, "(a, f17.15)") "Stddev : ", stdev  
+    write(*, "(a, f10.3)") "Mean      : ", mean
+    write(*, "(a, f10.3)") "Stddev    : ", stdev  
+    write(*,*) "====="
+    write(*, "(a, f10.3)") "Slope     : ", m 
+    write(*, "(a, f10.3)") "Intercept : ", b 
+    write(*, "(a, f10.3)") "r-value   : ", r 
 
     call nc_create(filename)
     call nc_write_dim(filename,"x",x)
     call nc_write(filename,"y",y,dim1="x")
     call nc_write(filename,"ysm",ysm,dim1="x")
-
-    stop 
 
     return 
 
@@ -683,6 +693,76 @@ subroutine calc_series_records(yrec,y,low_records,mv)
     return 
 
 end subroutine calc_series_records
+
+subroutine calc_linear_regression(m,b,r,y,x,mv)
+    ! Calculate linear regression of the form
+    ! y = mx + b, with correlation coefficient r 
+    ! using least squares regression algorithm: 
+    ! 1. compute sum of x
+    ! 2. compute sum of x**2
+    ! 3. compute sum of x * y
+    ! 4. compute sum of y
+    ! 5. compute sum of y**2
+            
+    implicit none 
+
+    real(wp), intent(OUT) :: m 
+    real(wp), intent(OUT) :: b 
+    real(wp), intent(OUT) :: r 
+    real(wp), intent(IN)  :: x(:) 
+    real(wp), intent(IN)  :: y(:) 
+    real(wp), intent(IN)  :: mv
+    
+    ! Local variables 
+    integer :: i, k, n 
+    integer, allocatable :: idx(:) 
+    real(wp) :: npts
+    real(wp) :: sumx, sumx2, sumxy, sumy, sumy2 
+
+    call which(x .ne. mv .and. y .ne. mv,idx,n)
+
+    if (n .ge. 2) then 
+        ! Points are available, perform linear regression 
+
+        sumx  = 0.0_wp 
+        sumx2 = 0.0_wp 
+        sumxy = 0.0_wp 
+        sumy  = 0.0_wp 
+        sumy2 = 0.0_wp 
+
+        do i = 1, n
+            k = idx(i)                                              
+            sumx  = sumx  + x(k)
+            sumx2 = sumx2 + x(k) * x(k)
+            sumxy = sumxy + x(k) * y(k)
+            sumy  = sumy  + y(k)                                                              
+            sumy2 = sumy2 + y(k) * y(k)
+        end do
+
+        ! Specify number of points in real format for easy division
+        npts = real(n,wp)
+
+        ! Calculate the slope, the y-intercept and the correlation coefficient r
+        ! 1. compute slope
+        ! 2. compute y-intercept
+        ! 3. compute correlation coefficient
+        m = (npts * sumxy  -  sumx * sumy)  / (npts * sumx2 - sumx**2)
+        b = (sumy * sumx2  -  sumx * sumxy) / (npts * sumx2 - sumx**2)
+        r = (sumxy - sumx * sumy / npts) /  &
+                     sqrt((sumx2 - sumx**2/npts) * (sumy2 - sumy**2/npts))
+
+    else 
+        ! Assign missing values to output
+
+        m = mv 
+        b = mv 
+        r = mv
+
+    end if
+
+    return 
+
+end subroutine calc_linear_regression
 
 subroutine calc_mean(mean,var,mv)
     ! Calculat the standard deviation of a
