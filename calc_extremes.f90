@@ -73,6 +73,7 @@ program calc_extremes
     type(dataset_class) :: dat 
 
     character(len=512) :: filename_in 
+    character(len=512) :: filename_out_0
     character(len=512) :: filename_out_1 
     character(len=512) :: filename_out_2
 
@@ -84,12 +85,13 @@ program calc_extremes
     ! stop 
 
     filename_in    = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1.nc"
+    filename_out_0 = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1_stats_0.nc"
     filename_out_1 = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1_stats_1.nc"
     filename_out_2 = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1_stats_2.nc"
 
     ! Options 
     load_tas     = .TRUE.
-    load_stats_1 = .FALSE. 
+    load_stats_1 = .TRUE. 
 
 
     ! Do not load original data if loading stats_1 
@@ -103,18 +105,18 @@ if (load_stats_1) then
     ! To do:
     !call stats_read_1(dat,filename_out_1)
 
-    call nc_read(filename_out_1,"cell_wt",      dat%cell_wt)
-    call nc_read(filename_out_1,"f_land",       dat%f_land)
-    call nc_read(filename_out_1,"wt70land",     dat%wt70land)
+    call nc_read(filename_out_0,"cell_wt",       dat%cell_wt)
+    call nc_read(filename_out_0,"f_land",        dat%f_land)
+    call nc_read(filename_out_0,"wt70land",      dat%wt70land)
     
-    call nc_read(filename_out_1,"tas",          dat%tas,        missing_value=mv)
-    call nc_read(filename_out_1,"tas_sm",       dat%tas_sm,     missing_value=mv)
-    call nc_read(filename_out_1,"tas_detrnd",   dat%tas_detrnd, missing_value=mv)
-    call nc_read(filename_out_1,"tas_lin_m",    dat%tas_lin_m,  missing_value=mv)
-    call nc_read(filename_out_1,"tas_lin_r",    dat%tas_lin_r,  missing_value=mv)
-    call nc_read(filename_out_1,"tas_sd",       dat%tas_sd,     missing_value=mv)
-    call nc_read(filename_out_1,"tas_sigma",    dat%tas_sigma,  missing_value=mv)
-
+    call nc_read(filename_out_0,"tas",           dat%tas,        missing_value=mv)
+    call nc_read(filename_out_0,"tas_sm",        dat%tas_sm,     missing_value=mv)
+    call nc_read(filename_out_0,"tas_detrnd",    dat%tas_detrnd, missing_value=mv)
+    
+    call nc_read(filename_out_1,"tas_lin_m",     dat%tas_lin_m,  missing_value=mv)
+    call nc_read(filename_out_1,"tas_lin_r",     dat%tas_lin_r,  missing_value=mv)
+    call nc_read(filename_out_1,"tas_sd",        dat%tas_sd,     missing_value=mv)
+    call nc_read(filename_out_1,"tas_sigma",     dat%tas_sigma,  missing_value=mv)
     call nc_read(filename_out_1,"tas_rec_hi",    dat%tas_rec_hi,    missing_value=mv)
     call nc_read(filename_out_1,"tas_rec_hi_lin",dat%tas_rec_hi_lin,missing_value=mv)
 
@@ -127,25 +129,28 @@ else
     ! === Write output ===
 
     ! Initialize file and write grid variables
-    call write_extremes_init(filename_out_1,dat%lon,dat%lat,dat%sigma,year0=1850,year1=2020)
-    
-    call nc_write(filename_out_1,"tas_rec_hi_lin",dat%tas_rec_hi_lin, &
-                    dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
-    
-    call nc_write(filename_out_1,"cell_wt", dat%cell_wt, dim1="lon",dim2="lat")
-    call nc_write(filename_out_1,"f_land",  dat%f_land,  dim1="lon",dim2="lat")
-    call nc_write(filename_out_1,"wt70land",dat%wt70land,dim1="lon",dim2="lat")
+    call write_extremes_init(filename_out_0,dat%lon,dat%lat,dat%sigma,year0=1850,year1=2020)
+        
+    call nc_write(filename_out_0,"cell_wt", dat%cell_wt, dim1="lon",dim2="lat")
+    call nc_write(filename_out_0,"f_land",  dat%f_land,  dim1="lon",dim2="lat")
+    call nc_write(filename_out_0,"wt70land",dat%wt70land,dim1="lon",dim2="lat")
     
     ! Write variables
-    call nc_write(filename_out_1,"tas",       dat%tas,       dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
-    call nc_write(filename_out_1,"tas_sm",    dat%tas_sm,    dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
-    call nc_write(filename_out_1,"tas_detrnd",dat%tas_detrnd,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    call nc_write(filename_out_0,"tas",       dat%tas,       dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    call nc_write(filename_out_0,"tas_ref",   dat%tas_ref,   dim1="lon",dim2="lat",dim3="month",missing_value=mv)
+    call nc_write(filename_out_0,"tas_sm",    dat%tas_sm,    dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    call nc_write(filename_out_0,"tas_detrnd",dat%tas_detrnd,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    
+    ! Initialize file and write grid variables
+    call write_extremes_init(filename_out_1,dat%lon,dat%lat,dat%sigma,year0=1850,year1=2020)
+
     call nc_write(filename_out_1,"tas_lin_m", dat%tas_lin_m, dim1="lon",dim2="lat",dim3="month",missing_value=mv)
     call nc_write(filename_out_1,"tas_lin_r", dat%tas_lin_r, dim1="lon",dim2="lat",dim3="month",missing_value=mv)
     call nc_write(filename_out_1,"tas_sd",    dat%tas_sd,    dim1="lon",dim2="lat",dim3="month",missing_value=mv)
     call nc_write(filename_out_1,"tas_sigma", dat%tas_sigma, dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
-
-    ! call nc_write(filename_out_1,"tas_rec_hi",dat%tas_rec_hi,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    call nc_write(filename_out_1,"tas_rec_hi",dat%tas_rec_hi,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    call nc_write(filename_out_1,"tas_rec_hi_lin",dat%tas_rec_hi_lin, &
+                    dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
     
 end if 
     
@@ -153,7 +158,7 @@ end if
 
     ! Initialize file and write grid variables
     call write_extremes_init(filename_out_2,dat%lon,dat%lat,dat%sigma,year0=1850,year1=2020)
-    call nc_write(filename_out_2,"frac_sigma",dat%frac_sigma,dim1="year",dim2="month",dim3="sigma",missing_value=mv)
+    call nc_write(filename_out_2,"frac_sigma",dat%frac_sigma,dim1="sigma",dim2="month",dim3="year",missing_value=mv)
 
 contains
 
@@ -245,7 +250,7 @@ subroutine stats_calc_1(dat,L,mv)
             ! Calculate linear regression 
             call calc_linear_regression(dat%tas_lin_m(i,j,m),lin_b,dat%tas_lin_r(i,j,m), &
                                             dat%tas(i,j,m,idx_lin),dat%year(idx_lin),mv)
-
+            
         end do 
 
         ! With reference, smoothed and detrended data available for all months,
@@ -450,7 +455,7 @@ subroutine dataset_alloc(dat,year0,year1)
     allocate(dat%tas_lin_m(dat%nx,dat%ny,dat%nm))
     allocate(dat%tas_lin_r(dat%nx,dat%ny,dat%nm))
 
-    allocate(dat%frac_sigma(dat%nyr,dat%nm,dat%nsig))
+    allocate(dat%frac_sigma(dat%nsig,dat%nm,dat%nyr))
 
     return 
 
@@ -591,7 +596,6 @@ subroutine test_timeseries(filename,n,mu,sigma,alpha)
 end subroutine test_timeseries
 
 
-
 subroutine calc_frac_sigma_series(frac_sigma,tas_sigma,wts,sigma,mv)
     ! Get spatial fraction of weighted area that is >= sigma-thresholds
     ! defined in the vector `sigma`. This variable is calculated
@@ -599,7 +603,7 @@ subroutine calc_frac_sigma_series(frac_sigma,tas_sigma,wts,sigma,mv)
 
     implicit none 
 
-    real(wp), intent(OUT) :: frac_sigma(:,:,:)      ! [nyr,nm,nsig]
+    real(wp), intent(OUT) :: frac_sigma(:,:,:)      ! [nsig,nm,nyr]
     real(wp), intent(IN)  :: tas_sigma(:,:,:,:)     ! [nx,ny,nm,nyr]
     real(wp), intent(IN)  :: wts(:,:)               ! [nx,ny]
     real(wp), intent(IN)  :: sigma(:)
@@ -615,10 +619,10 @@ subroutine calc_frac_sigma_series(frac_sigma,tas_sigma,wts,sigma,mv)
     nx   = size(tas_sigma,1)
     ny   = size(tas_sigma,2)
 
-    nyr  = size(frac_sigma,1)
+    nsig = size(frac_sigma,1) 
     nm   = size(frac_sigma,2)
-    nsig = size(frac_sigma,3) 
-
+    nyr  = size(frac_sigma,3)
+    
     allocate(tas_sigma_now(nx*ny)) 
     allocate(wts_now(nx*ny)) 
 
@@ -648,9 +652,9 @@ subroutine calc_frac_sigma_series(frac_sigma,tas_sigma,wts,sigma,mv)
                                 wts_now .gt. 0.0_wp, idx, n )
 
                     if (n .gt. 0) then 
-                        frac_sigma(y,m,q) = sum(wts_now(idx)) / wt_tot 
+                        frac_sigma(q,m,y) = sum(wts_now(idx)) / wt_tot 
                     else 
-                        frac_sigma(y,m,q) = 0.0_wp 
+                        frac_sigma(q,m,y) = 0.0_wp 
                     end if 
 
                 end do 

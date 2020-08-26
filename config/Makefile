@@ -57,7 +57,8 @@ usage:
 	@echo ""
 	@echo "    * USAGE * "
 	@echo ""
-	@echo " make clean      : cleans object files"
+	@echo " make extremes   : compile executable program"
+	@echo " make clean      : clean object files"
 	@echo ""
 
 clean:
