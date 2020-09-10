@@ -77,28 +77,38 @@ program calc_extremes
     character(len=512) :: filename_out_1 
     character(len=512) :: filename_out_2
 
-    logical :: load_tas 
-    logical :: load_stats_1 
+    logical  :: load_tas 
+    logical  :: load_stats_1 
+
+    integer  :: year0 
+    integer  :: year1
 
     ! Test time series calculations 
     ! call test_timeseries("test.nc",n=1000,mu=0.0_wp,sigma=2.0_wp,alpha=0.1_wp)
     ! stop 
 
-    filename_in    = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1.nc"
-    filename_out_0 = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1_stats_0.nc"
-    filename_out_1 = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1_stats_1.nc"
-    filename_out_2 = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1_stats_2.nc"
+    ! filename_in    = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1.nc"
+    ! filename_out_0 = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1_stats_0.nc"
+    ! filename_out_1 = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1_stats_1.nc"
+    ! filename_out_2 = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1_stats_2.nc"
+
+    filename_in    = "data/BerkeleyEarth/2020-08_BEST/Complete_TAVG_LatLong1.nc"
+    filename_out_0 = "data/BerkeleyEarth/2020-08_BEST/Complete_TAVG_LatLong1_stats_0.nc"
+    filename_out_1 = "data/BerkeleyEarth/2020-08_BEST/Complete_TAVG_LatLong1_stats_1.nc"
+    filename_out_2 = "data/BerkeleyEarth/2020-08_BEST/Complete_TAVG_LatLong1_stats_2.nc"
 
     ! Options 
-    load_tas     = .TRUE.
-    load_stats_1 = .TRUE. 
+    load_tas        = .TRUE.
+    load_stats_1    = .FALSE. 
 
+    year0           = 1750 
+    year1           = 2020 
 
     ! Do not load original data if loading stats_1 
     if (load_stats_1) load_tas = .FALSE. 
 
     ! Load data including dimension info (nx,ny)
-    call load_best(dat,filename_in,year0=1850,year1=2020,mv=mv,load_tas=load_tas)
+    call load_best(dat,filename_in,year0=year0,year1=year1,mv=mv,load_tas=load_tas)
 
 if (load_stats_1) then 
 
@@ -129,7 +139,7 @@ else
     ! === Write output ===
 
     ! Initialize file and write grid variables
-    call write_extremes_init(filename_out_0,dat%lon,dat%lat,dat%sigma,year0=1850,year1=2020)
+    call write_extremes_init(filename_out_0,dat%lon,dat%lat,dat%sigma,year0=year0,year1=year1)
         
     call nc_write(filename_out_0,"cell_wt", dat%cell_wt, dim1="lon",dim2="lat")
     call nc_write(filename_out_0,"f_land",  dat%f_land,  dim1="lon",dim2="lat")
@@ -142,7 +152,7 @@ else
     call nc_write(filename_out_0,"tas_detrnd",dat%tas_detrnd,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
     
     ! Initialize file and write grid variables
-    call write_extremes_init(filename_out_1,dat%lon,dat%lat,dat%sigma,year0=1850,year1=2020)
+    call write_extremes_init(filename_out_1,dat%lon,dat%lat,dat%sigma,year0=year0,year1=year1)
 
     call nc_write(filename_out_1,"tas_lin_m", dat%tas_lin_m, dim1="lon",dim2="lat",dim3="month",missing_value=mv)
     call nc_write(filename_out_1,"tas_lin_r", dat%tas_lin_r, dim1="lon",dim2="lat",dim3="month",missing_value=mv)
@@ -157,7 +167,7 @@ end if
     call stats_calc_2(dat,mv)
 
     ! Initialize file and write grid variables
-    call write_extremes_init(filename_out_2,dat%lon,dat%lat,dat%sigma,year0=1850,year1=2020)
+    call write_extremes_init(filename_out_2,dat%lon,dat%lat,dat%sigma,year0=year0,year1=year1)
     call nc_write(filename_out_2,"frac_sigma",dat%frac_sigma,dim1="sigma",dim2="month",dim3="year",missing_value=mv)
 
 contains
@@ -250,7 +260,7 @@ subroutine stats_calc_1(dat,L,mv)
             ! Calculate linear regression 
             call calc_linear_regression(dat%tas_lin_m(i,j,m),lin_b,dat%tas_lin_r(i,j,m), &
                                             dat%tas(i,j,m,idx_lin),dat%year(idx_lin),mv)
-            
+
         end do 
 
         ! With reference, smoothed and detrended data available for all months,
@@ -372,7 +382,7 @@ subroutine load_best(dat,filename,year0,year1,mv,load_tas)
     call nc_read(filename,"latitude", dat%lat)
     
     ! Allocate dataset variables to prepare for populating them.
-    call dataset_alloc(dat,year0=1850,year1=2020)
+    call dataset_alloc(dat,year0=year0,year1=year1)
 
     ! Calculate grid variables (cell_wt,mask)
     call calc_cell_weights(dat%cell_wt,dat%lon,dat%lat)
