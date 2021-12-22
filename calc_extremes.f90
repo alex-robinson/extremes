@@ -63,6 +63,7 @@ program calc_extremes
 
         real(wp), allocatable :: tas_rec_hi(:,:,:,:)
         real(wp), allocatable :: tas_rec_hi_lin(:,:,:,:)
+        real(wp), allocatable :: tas_rec_hi_1880(:,:,:,:)
         real(wp), allocatable :: tas_lin_m(:,:,:) 
         real(wp), allocatable :: tas_lin_r(:,:,:)
 
@@ -92,10 +93,10 @@ program calc_extremes
     ! filename_out_1 = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1_stats_1.nc"
     ! filename_out_2 = "data/BerkeleyEarth/2020-08_BEST/Land_and_Ocean_LatLong1_stats_2.nc"
 
-    filename_in    = "data/BerkeleyEarth/2020-08_BEST/Complete_TAVG_LatLong1.nc"
-    filename_out_0 = "data/BerkeleyEarth/2020-08_BEST/Complete_TAVG_LatLong1_stats_0.nc"
-    filename_out_1 = "data/BerkeleyEarth/2020-08_BEST/Complete_TAVG_LatLong1_stats_1.nc"
-    filename_out_2 = "data/BerkeleyEarth/2020-08_BEST/Complete_TAVG_LatLong1_stats_2.nc"
+    filename_in    = "data/BerkeleyEarth/2021-02_BEST/Complete_TAVG_LatLong1.nc"
+    filename_out_0 = "data/BerkeleyEarth/2021-02_BEST/Complete_TAVG_LatLong1_stats_0.nc"
+    filename_out_1 = "data/BerkeleyEarth/2021-02_BEST/Complete_TAVG_LatLong1_stats_1.nc"
+    filename_out_2 = "data/BerkeleyEarth/2021-02_BEST/Complete_TAVG_LatLong1_stats_2.nc"
 
     ! Options 
     load_tas        = .TRUE.
@@ -115,20 +116,21 @@ if (load_stats_1) then
     ! To do:
     !call stats_read_1(dat,filename_out_1)
 
-    call nc_read(filename_out_0,"cell_wt",       dat%cell_wt)
-    call nc_read(filename_out_0,"f_land",        dat%f_land)
-    call nc_read(filename_out_0,"wt70land",      dat%wt70land)
+    call nc_read(filename_out_0,"cell_wt",        dat%cell_wt)
+    call nc_read(filename_out_0,"f_land",         dat%f_land)
+    call nc_read(filename_out_0,"wt70land",       dat%wt70land)
     
-    call nc_read(filename_out_0,"tas",           dat%tas,        missing_value=mv)
-    call nc_read(filename_out_0,"tas_sm",        dat%tas_sm,     missing_value=mv)
-    call nc_read(filename_out_0,"tas_detrnd",    dat%tas_detrnd, missing_value=mv)
+    call nc_read(filename_out_0,"tas",            dat%tas,        missing_value=mv)
+    call nc_read(filename_out_0,"tas_sm",         dat%tas_sm,     missing_value=mv)
+    call nc_read(filename_out_0,"tas_detrnd",     dat%tas_detrnd, missing_value=mv)
     
-    call nc_read(filename_out_1,"tas_lin_m",     dat%tas_lin_m,  missing_value=mv)
-    call nc_read(filename_out_1,"tas_lin_r",     dat%tas_lin_r,  missing_value=mv)
-    call nc_read(filename_out_1,"tas_sd",        dat%tas_sd,     missing_value=mv)
-    call nc_read(filename_out_1,"tas_sigma",     dat%tas_sigma,  missing_value=mv)
-    call nc_read(filename_out_1,"tas_rec_hi",    dat%tas_rec_hi,    missing_value=mv)
-    call nc_read(filename_out_1,"tas_rec_hi_lin",dat%tas_rec_hi_lin,missing_value=mv)
+    call nc_read(filename_out_1,"tas_lin_m",      dat%tas_lin_m,      missing_value=mv)
+    call nc_read(filename_out_1,"tas_lin_r",      dat%tas_lin_r,      missing_value=mv)
+    call nc_read(filename_out_1,"tas_sd",         dat%tas_sd,         missing_value=mv)
+    call nc_read(filename_out_1,"tas_sigma",      dat%tas_sigma,      missing_value=mv)
+    call nc_read(filename_out_1,"tas_rec_hi",     dat%tas_rec_hi,     missing_value=mv)
+    ! call nc_read(filename_out_1,"tas_rec_hi_lin", dat%tas_rec_hi_lin, missing_value=mv)
+    call nc_read(filename_out_1,"tas_rec_hi_1880",dat%tas_rec_hi_1880,missing_value=mv)
 
 else 
     ! Calculate stats1 
@@ -159,7 +161,9 @@ else
     call nc_write(filename_out_1,"tas_sd",    dat%tas_sd,    dim1="lon",dim2="lat",dim3="month",missing_value=mv)
     call nc_write(filename_out_1,"tas_sigma", dat%tas_sigma, dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
     call nc_write(filename_out_1,"tas_rec_hi",dat%tas_rec_hi,dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
-    call nc_write(filename_out_1,"tas_rec_hi_lin",dat%tas_rec_hi_lin, &
+    ! call nc_write(filename_out_1,"tas_rec_hi_lin",dat%tas_rec_hi_lin, &
+    !                 dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
+    call nc_write(filename_out_1,"tas_rec_hi_1880",dat%tas_rec_hi_1880, &
                     dim1="lon",dim2="lat",dim3="month",dim4="year",missing_value=mv)
     
 end if 
@@ -188,6 +192,7 @@ subroutine stats_calc_1(dat,L,mv)
     integer, allocatable :: idx_ref(:) 
     integer, allocatable :: idx_sd(:) 
     integer, allocatable :: idx_lin(:) 
+    integer, allocatable :: idx_1880(:) 
     integer, allocatable :: idx_numeric(:) 
 
     integer  :: idx_mm(12,3)
@@ -212,13 +217,15 @@ subroutine stats_calc_1(dat,L,mv)
     ! Get indices of year ranges
     call which(dat%year .ge. 1951 .and. dat%year .le. 2010,idx_sd)
     call which(dat%year .ge. 1971 .and. dat%year .le. 2020,idx_lin)
+    call which(dat%year .ge. 1880 .and. dat%year .le. 2020,idx_1880)
 
     ! Initialize all variables with missing values 
     dat%tas_ref    = mv 
     dat%tas_sm     = mv 
     dat%tas_detrnd = mv 
     dat%tas_rec_hi = mv
-    dat%tas_rec_hi_lin = mv
+    dat%tas_rec_hi_lin  = mv
+    dat%tas_rec_hi_1880 = mv
     dat%tas_lin_m  = mv
     dat%tas_lin_r  = mv
     dat%tas_sd     = mv 
@@ -256,6 +263,7 @@ subroutine stats_calc_1(dat,L,mv)
             ! Calculate records 
             call calc_series_records(dat%tas_rec_hi(i,j,m,:),dat%tas(i,j,m,:),low_records=.FALSE.,mv=mv)
             call calc_series_records(dat%tas_rec_hi_lin(i,j,m,:),dat%tas(i,j,m,:),low_records=.FALSE.,mv=mv,idx=idx_lin)
+            call calc_series_records(dat%tas_rec_hi_1880(i,j,m,:),dat%tas(i,j,m,:),low_records=.FALSE.,mv=mv,idx=idx_1880)
 
             ! Calculate linear regression 
             call calc_linear_regression(dat%tas_lin_m(i,j,m),lin_b,dat%tas_lin_r(i,j,m), &
@@ -461,6 +469,7 @@ subroutine dataset_alloc(dat,year0,year1)
     allocate(dat%tas_sigma(dat%nx,dat%ny,dat%nm,dat%nyr))
     allocate(dat%tas_rec_hi(dat%nx,dat%ny,dat%nm,dat%nyr))
     allocate(dat%tas_rec_hi_lin(dat%nx,dat%ny,dat%nm,dat%nyr))
+    allocate(dat%tas_rec_hi_1880(dat%nx,dat%ny,dat%nm,dat%nyr))
 
     allocate(dat%tas_lin_m(dat%nx,dat%ny,dat%nm))
     allocate(dat%tas_lin_r(dat%nx,dat%ny,dat%nm))
@@ -489,7 +498,8 @@ subroutine dataset_dealloc(dat)
     if (allocated(dat%tas_sigma))       deallocate(dat%tas_sigma)
     if (allocated(dat%tas_rec_hi))      deallocate(dat%tas_rec_hi)
     if (allocated(dat%tas_rec_hi_lin))  deallocate(dat%tas_rec_hi_lin)
-
+    if (allocated(dat%tas_rec_hi_1880)) deallocate(dat%tas_rec_hi_1880)
+    
     if (allocated(dat%frac_sigma))      deallocate(dat%frac_sigma)
 
     return 
